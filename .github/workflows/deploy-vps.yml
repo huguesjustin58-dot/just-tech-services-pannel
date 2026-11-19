@@ -88,7 +88,6 @@ jobs:
           JTS_SKIP_TLS: ${{ vars.JTS_SKIP_TLS || '0' }}
         run: |
           set -euo pipefail
-          set -euo pipefail
           [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9_./-]+$ ]] || { echo "::error::DEPLOY_PATH invalide."; exit 1; }
           [[ "$JTS_PANEL_DOMAIN" =~ ^[A-Za-z0-9.-]+$ && "$JTS_API_DOMAIN" =~ ^[A-Za-z0-9.-]+$ && "$JTS_ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || { echo "::error::Domaines ou adresse admin invalides."; exit 1; }
           [[ "$JTS_SKIP_TLS" == "0" || "$JTS_SKIP_TLS" == "1" ]] || { echo "::error::JTS_SKIP_TLS doit être 0 ou 1."; exit 1; }
