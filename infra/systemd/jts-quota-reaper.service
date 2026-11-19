@@ -1,0 +1,6 @@
+[Unit]
+Description=JUST TECH SERVICES - Quota & MaxUser Enforcer
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/jts-ssh-quota-reaper.sh

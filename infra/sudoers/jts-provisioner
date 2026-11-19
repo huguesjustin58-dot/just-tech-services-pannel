@@ -1,0 +1,2 @@
+Defaults:jts-provisioner !requiretty
+jts-provisioner ALL=(root) NOPASSWD: /usr/sbin/useradd, /usr/sbin/usermod, /usr/sbin/userdel, /usr/sbin/chpasswd, /usr/bin/chage, /usr/bin/getent, /usr/sbin/iptables, /usr/bin/pkill, /bin/kill, /bin/mkdir, /usr/bin/tee, /bin/chmod, /bin/rm
