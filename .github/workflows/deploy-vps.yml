@@ -1,0 +1,102 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: just-tech-panel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy production panel
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.ENABLE_DEPLOYMENT == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate deployment settings
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          JTS_SUPERADMIN_EMAIL: ${{ secrets.JTS_SUPERADMIN_EMAIL }}
+          JTS_SUPERADMIN_PASSWORD: ${{ secrets.JTS_SUPERADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in DEPLOY_HOST DEPLOY_SSH_PRIVATE_KEY DEPLOY_KNOWN_HOSTS JTS_SUPERADMIN_EMAIL JTS_SUPERADMIN_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Le secret GitHub ${name} est requis."
+              exit 1
+            fi
+          done
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "::error::DEPLOY_HOST invalide."; exit 1; }
+          [[ "$JTS_SUPERADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || { echo "::error::Adresse superadmin invalide."; exit 1; }
+          [[ "${#JTS_SUPERADMIN_PASSWORD}" -ge 16 && "$JTS_SUPERADMIN_PASSWORD" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::Le mot de passe doit faire au moins 16 caractères et utiliser seulement lettres, chiffres, _ ou -."; exit 1; }
+          [[ "$DEPLOY_KNOWN_HOSTS" == *"$DEPLOY_HOST"* ]] || { echo "::error::DEPLOY_KNOWN_HOSTS doit contenir l'hôte configuré."; exit 1; }
+
+      - name: Prepare package and SSH
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          JTS_SUPERADMIN_EMAIL: ${{ secrets.JTS_SUPERADMIN_EMAIL }}
+          JTS_SUPERADMIN_PASSWORD: ${{ secrets.JTS_SUPERADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          mkdir -p "$RUNNER_TEMP/jts-deploy"
+          git archive --format=zip --prefix=JUST_TECH_SERVICES_PANEL/ "$GITHUB_SHA" > "$RUNNER_TEMP/jts-deploy/release.zip"
+          cp infra/deploy-final-package.sh "$RUNNER_TEMP/jts-deploy/deploy-final-package.sh"
+          printf '%s' "$JTS_SUPERADMIN_EMAIL" | base64 -w 0 > "$RUNNER_TEMP/jts-deploy/admin-email.b64"
+          printf '%s' "$JTS_SUPERADMIN_PASSWORD" | base64 -w 0 > "$RUNNER_TEMP/jts-deploy/admin-password.b64"
+
+      - name: Upload release
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
+        run: |
+          set -euo pipefail
+          DEST="/tmp/jts-panel-$GITHUB_SHA"
+          ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "mkdir -m 700 -p '$DEST'"
+          scp -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes \
+            "$RUNNER_TEMP/jts-deploy/release.zip" \
+            "$RUNNER_TEMP/jts-deploy/deploy-final-package.sh" \
+            "$RUNNER_TEMP/jts-deploy/admin-email.b64" \
+            "$RUNNER_TEMP/jts-deploy/admin-password.b64" \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEST/"
+
+      - name: Install and start the panel
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/justtech-panel' }}
+          JTS_PANEL_DOMAIN: ${{ vars.JTS_PANEL_DOMAIN || 'panel.justtechservices.xyz' }}
+          JTS_API_DOMAIN: ${{ vars.JTS_API_DOMAIN || 'api.justtechservices.xyz' }}
+          JTS_ADMIN_EMAIL: ${{ vars.JTS_ADMIN_EMAIL || 'admin@justtechservices.xyz' }}
+          JTS_SKIP_TLS: ${{ vars.JTS_SKIP_TLS || '0' }}
+        run: |
+          set -euo pipefail
+          DEST="/tmp/jts-panel-$GITHUB_SHA"
+          ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "sudo -n env JTS_INSTALL_DIR='$DEPLOY_PATH' JTS_PANEL_DOMAIN='$JTS_PANEL_DOMAIN' JTS_API_DOMAIN='$JTS_API_DOMAIN' JTS_ADMIN_EMAIL='$JTS_ADMIN_EMAIL' JTS_SKIP_TLS='$JTS_SKIP_TLS' bash '$DEST/deploy-final-package.sh' '$DEST/release.zip' '$DEST/admin-email.b64' '$DEST/admin-password.b64'"
+
+      - name: Remove uploaded credentials
+        if: always()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
+        run: |
+          DEST="/tmp/jts-panel-$GITHUB_SHA"
+          ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" "rm -rf '$DEST'" || true
