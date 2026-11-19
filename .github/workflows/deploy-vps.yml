@@ -88,9 +88,13 @@ jobs:
           JTS_SKIP_TLS: ${{ vars.JTS_SKIP_TLS || '0' }}
         run: |
           set -euo pipefail
+          set -euo pipefail
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9_./-]+$ ]] || { echo "::error::DEPLOY_PATH invalide."; exit 1; }
+          [[ "$JTS_PANEL_DOMAIN" =~ ^[A-Za-z0-9.-]+$ && "$JTS_API_DOMAIN" =~ ^[A-Za-z0-9.-]+$ && "$JTS_ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || { echo "::error::Domaines ou adresse admin invalides."; exit 1; }
+          [[ "$JTS_SKIP_TLS" == "0" || "$JTS_SKIP_TLS" == "1" ]] || { echo "::error::JTS_SKIP_TLS doit être 0 ou 1."; exit 1; }
           DEST="/tmp/jts-panel-$GITHUB_SHA"
           ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "sudo -n env JTS_INSTALL_DIR='$DEPLOY_PATH' JTS_PANEL_DOMAIN='$JTS_PANEL_DOMAIN' JTS_API_DOMAIN='$JTS_API_DOMAIN' JTS_ADMIN_EMAIL='$JTS_ADMIN_EMAIL' JTS_SKIP_TLS='$JTS_SKIP_TLS' bash '$DEST/deploy-final-package.sh' '$DEST/release.zip' '$DEST/admin-email.b64' '$DEST/admin-password.b64'"
+            "sudo -n bash -c 'set -euo pipefail; install -d -m 750 \"$DEPLOY_PATH/backend\"; if [[ ! -f \"$DEPLOY_PATH/backend/.env\" ]]; then unzip -p \"$DEST/release.zip\" JUST_TECH_SERVICES_PANEL/backend/.env.example > \"$DEPLOY_PATH/backend/.env\"; chmod 600 \"$DEPLOY_PATH/backend/.env\"; printf \"\\\\nJTS_SUPERADMIN_EMAIL=%s\\\\nJTS_SUPERADMIN_PASSWORD=%s\\\\n\" \"\\$(base64 -d \"$DEST/admin-email.b64\")\" \"\\$(base64 -d \"$DEST/admin-password.b64\")\" >> \"$DEPLOY_PATH/backend/.env\"; fi; JTS_INSTALL_DIR=\"$DEPLOY_PATH\" JTS_PANEL_DOMAIN=\"$JTS_PANEL_DOMAIN\" JTS_API_DOMAIN=\"$JTS_API_DOMAIN\" JTS_ADMIN_EMAIL=\"$JTS_ADMIN_EMAIL\" JTS_SKIP_TLS=\"$JTS_SKIP_TLS\" bash \"$DEST/deploy-final-package.sh\" \"$DEST/release.zip\"'"
 
       - name: Remove uploaded credentials
         if: always()
