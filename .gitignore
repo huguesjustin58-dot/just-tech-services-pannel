@@ -1,0 +1,22 @@
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+
+# Dependencies and runtime data
+backend/vendor/
+backend/storage/app/keys/
+backend/storage/logs/*.log
+node_modules/
+__pycache__/
+*.pyc
+backups/
+
+# Local tooling
+.DS_Store
+Thumbs.db
